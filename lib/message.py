@@ -6,11 +6,14 @@ class MessageType(str, Enum):
     MESSAGE = "MESSAGE"
     DISCOVERY_REQ = "DISCOVERY_REQUEST"
     DISCOVERY_RES = "DISCOVERY_RESPONSE"
-    ELECTION_REQ = "ELECTION_REQUEST"
+    ELECTION_REQ = "ELECTION_REQUEST"  # initiate election
     ELECTION_RES = "ELECTION_RESPONSE"
-    LEADER_REQ = "LEADER_REQUEST"
+    LEADER_REQ = "LEADER_REQUEST"  # vote for leader with id
     LEADER_RES = "LEADER_RESPONSE"
-    PING = "PING"
+    PING_REQ = "PING_REQUEST"
+    PING_RES = "PING_RESPONSE"
+    GET_LEADER = "GET_LEADER"  # new to ring? get leader
+    RES_LEADER = "LEADER"
 
     def toJSON(self):
         return self.name
@@ -18,7 +21,7 @@ class MessageType(str, Enum):
 
 class Message(object):
     type = MessageType.MESSAGE
-    message = ''
+    message = None
     host = ''
     port = ''
 

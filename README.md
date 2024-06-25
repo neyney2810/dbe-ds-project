@@ -1,4 +1,4 @@
 # dbe-ds-project
 A simple distributed system written in Python
 
-pip freeze > requirements.txt
+python -m pip freeze > requirements.txt

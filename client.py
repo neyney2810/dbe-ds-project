@@ -1,6 +1,6 @@
 import logging
+import multiprocessing
 import socket
-import threading
 import time
 
 
@@ -45,7 +45,7 @@ class Client():
         self.send_message(message)
 
         if self._sock:
-            recv_io = threading.Thread(target=self._handleMessage)
+            recv_io = multiprocessing.Process(target=self._handleMessage)
             recv_io.daemon = True
             recv_io.start()
             while True:

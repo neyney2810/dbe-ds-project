@@ -1,32 +1,83 @@
 # Defined a class to calculate the election results based on the input data.
 
-import uuid
+import time
 
+from lib.address import Address
 from lib.message import Message, MessageType
 
 
 class Node:
+    # Address is the primary address of the node which is used for client communication
+    address = Address()
+    # replica address for internode communication, normally get the same host with address but different port
+    replica_address = Address()
+
+    def __init__(self, address=Address(), replica_address=Address()) -> None:
+        self.address = address
+        self.replica_address = replica_address
+        self.id = str(address.host) + ":" + str(address.port)
+
+    def __str__(self):
+        return "[Address: {}, Replica Address: {}]".format(self.address, self.replica_address)
+
+    def __repr__(self):
+        return self.__str__()
+
+    def __eq__(self, other):
+        return self.address == other.address
+
+    def __hash__(self):
+        return hash(self.address)
+
+    def __iter__(self):
+        return iter(self.address)
+
+    def __getitem__(self, index):
+        return self.address[index]
+
+    def __len__(self):
+        return len(self.address)
+
+
+class RingMember(Node):
     participant = False
     leader_id = None
-    address = None
+    nodes = []  # List of nodes address in the ring
 
-    def __init__(self, id=None, address=None, send=lambda msg, adr: print("Send: ", msg, adr)) -> None:
-        if id is not None:
-            self.id = id
-        else:
-            self.id = uuid.uuid4()
+    def __init__(self, address=Address(), send=lambda msg, adr: None, replica_address=Address(), nodes=[]) -> None:
+        super().__init__(address, replica_address)
+        self.alive = True
         self.sock_send = send
-        self.next_node = None
         self.address = address
+        self.replica_address = replica_address
+        self.nodes = nodes
 
     def send(self, type, id):
         # send to next node
-        elect_msg = Message(host=self.address.host, port=self.address.port, message=id,
-                            type=type)
-        self.sock_send(elect_msg, self.next_node.address)
+        next_node = self.get_next_node()
+        if next_node is not None:
+            elect_msg = Message(host=self.address.host, port=self.address.port, message=id,
+                                type=type)
+            self.sock_send(elect_msg, self.replica_address)
 
-    def set_next_node(self, next_node):
-        self.next_node = next_node
+    # Ring formation
+    def form_ring(self):
+        print("Form ring", [node for node in self.nodes])
+        self.nodes = sorted([node.id for node in self.nodes])
+        print("Sorted ring", self.nodes)
+        return self.nodes
+
+    def get_next_node(self):
+        if len(self.nodes) == 0 or len(self.nodes) == 1:
+            return None
+        current_index = self.nodes.index(self.id)
+        if current_index + 1 < len(self.nodes):
+            return self.nodes[current_index + 1]
+        return self.nodes[0]
+
+    def join_ring(self):
+        # Query neighbor for the current leader
+        self.send(MessageType.GET_LEADER, "")
 
     def is_leader(self):
         return self.leader_id == self.id
@@ -38,7 +89,7 @@ class Node:
         self.participant = True
 
     # Upon receiving a message ELECTION(j)
-    def receive(self, id):
+    def receive_election(self, id):
         # if (j > my_id) then send(ELECTION, j);
         if id > self.id:
             # send(id, 'ELECTION')
@@ -62,31 +113,23 @@ class Node:
             # send(LEADER, j)
             self.send(MessageType.LEADER_REQ, leader_id)
 
-    def calculate(self):
-        # Calculate the election results
-        results = {}
-        for candidate in self.data:
-            results[candidate] = sum(self.data[candidate])
-        return results
+    def raise_leader(self):
+        # send(LEADER, my_id)
+        self.send(MessageType.LEADER_REQ, self.id)
+        print('I am the leader')
+
+    def send_heartbeat(self):
+        while self.alive:
+            time.sleep(10)  # Heartbeat interval
+            print(f"Node {self.node_id} sending heartbeat")
+            if self.get_next_node() is not None:
+                self.send(MessageType.PING_REQ, self.id)
+
+    def receive_heartbeat(self, node_id):
+        print(f"Node {self.node_id} received heartbeat from Node {node_id}")
+
+    def set_nodes(self, nodes):
+        self.nodes = nodes
 
     def __str__(self):
         return "Election: {} Leader: {}".format(self.id, self.leader_id)
-
-
-class LeaderNode(Node):
-    def __init__(self, id=None, send=lambda type, id: print("Send: ", type, id)) -> None:
-        super().__init__(id, send)
-        self.leader_id = self.id
-
-    def setup_ring(self, node_ids):
-        # node_ids is of type list
-        self.sorted_ids = sorted(node_ids)
-
-    def get_ring(self):
-        return self.sorted_ids
-
-    def get_next_node_for(self, id):
-        if self.leader_id == id:
-            return self.sorted_ids[0]
-        else:
-            return self.sorted_ids[self.sorted_ids.index(id) + 1]
