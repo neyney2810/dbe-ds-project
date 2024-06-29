@@ -14,6 +14,8 @@ class MessageType(str, Enum):
     PING_RES = "PING_RESPONSE"
     GET_LEADER = "GET_LEADER"  # new to ring? get leader
     RES_LEADER = "LEADER"
+    REMOVE_NODE = "REMOVE_NODE"
+    REMOVE_NODE_RES = "REMOVE_NODE_RESPONSE"
 
     def toJSON(self):
         return self.name

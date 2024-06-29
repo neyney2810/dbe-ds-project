@@ -64,7 +64,7 @@ def main():
         # nickname = input('Enter nickname: ')
         server_ip = '127.0.0.1'
         nickname = 'client'
-        server_port = 3000
+        server_port = 5973
         if len(server_ip.split('.')) < 4:
             continue
         break

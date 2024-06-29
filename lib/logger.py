@@ -53,3 +53,6 @@ class Logger:
     def log_replica(self, message):
         self._replica_logger.info(message)
         print(colored(f"REPLICA: {message}", self.replica_color))
+
+    def log_sys(self, message):
+        print(colored(f"SYSTEM: {message}", "magenta"))

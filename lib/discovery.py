@@ -1,7 +1,7 @@
 import json
 from multiprocessing import Process
+import multiprocessing
 import os
-import select
 import time
 from dotenv import load_dotenv
 from lib.address import Address
@@ -28,12 +28,6 @@ class Discovery():
 
     def set_on_message(self, on_message):
         self.on_message = on_message
-
-    def set_on_discovery(self, on_discovery):
-        self.on_discovery = on_discovery
-
-    def set_on_finish_discovery(self, on_finish_discovery):
-        self.on_finish_discovery = on_finish_discovery
 
     def set_replica_address(self, replica_address):
         self.replica_address = replica_address
@@ -65,10 +59,10 @@ class Discovery():
         message = MessageEncoder().encode(message)
         self._logger.log_broadcast(
             'Sending discovery message: {}'.format(message))
+
         # Broadcast message
         self.send_socket.sendto(
             str.encode(message), (self.BROADCAST_IP, self.BROADCAST_PORT))
-        # Wait 3 seconds
         time.sleep(1)
         self.on_finish_discovery()
 
@@ -95,36 +89,41 @@ class Discovery():
         print('Listening for incoming messages from broadcast...')
         while True:
             data, address = self.recv_socket.recvfrom(1024)
-            print('Received data: {} from {}'.format(data, address))
-            jsonStr = data.decode("utf-8")
-            message = json.loads(json.loads(jsonStr), cls=MessageDecoder)
-            if message.type == MessageType.DISCOVERY_REQ:
-                if message.host != self.host or message.port != self.port:  # Ignore its own discovery request
-                    self._logger.log_broadcast('Discovery request from: {} {} {}'.format(
-                        message.host, message.port, message.message))
-                    # Reply with its own address
-                    res = str(Address(host=self.replica_address.host,
-                              port=self.replica_address.port))
-                    reply = Message(host=self.host, port=self.port, message=res,
-                                    type=MessageType.DISCOVERY_RES)
-                    self._logger.log_broadcast(
-                        'Sending discovery response: {} to {}'.format(reply, address))
-                    self.broadcast(MessageEncoder().encode(reply))
-                    # Add new node to the network
-                    self.on_discovery(message)
-            elif message.type == MessageType.DISCOVERY_RES:
+            print('Received data from {}'.format(address))
+            p = multiprocessing.Process(target=self.process_message,
+                                        args=(data, address))
+            p.start()
+            p.join()
+
+    def process_message(self, data, address):
+        jsonStr = data.decode("utf-8")
+        message = json.loads(json.loads(jsonStr), cls=MessageDecoder)
+        if message.type == MessageType.DISCOVERY_REQ:
+            if message.host != self.host or message.port != self.port:  # Ignore its own discovery request
+                self._logger.log_broadcast('Discovery request from: {} {}'.format(
+                    message.host, message.port))
+                # Reply with its own address
+                res = str(Address(host=self.replica_address.host,
+                                  port=self.replica_address.port))
+                reply = Message(host=self.host, port=self.port, message=res,
+                                type=MessageType.DISCOVERY_RES)
+                self._logger.log_broadcast(
+                    'Sending discovery response to {}'.format(address))
+                self.broadcast(MessageEncoder().encode(reply))
+                # Add new node to the network
                 self.on_discovery(message)
-            elif message.type == MessageType.MESSAGE:
-                self.on_message(message, address)
+        elif message.type == MessageType.DISCOVERY_RES:
+            self.on_discovery(message)
+        elif message.type == MessageType.MESSAGE:
+            self.on_message(message, address)
 
     def terminate(self):
         self._stop_req = True
         pass
 
     def start_listening(self):
-        listener_thread = Process(
-            target=self.listen)
-        listener_thread.start()
+        listen_thread = Process(target=self.listen)
+        listen_thread.start()
 
     def start_send_discovery(self):
         discovery_thread = Process(

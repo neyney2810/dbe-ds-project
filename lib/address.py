@@ -1,3 +1,6 @@
+import json
+
+
 class Address:
     def __init__(self, host: str = "", port: int = None):
         self.host = host
@@ -28,6 +31,16 @@ class Address:
 
     def __len__(self):
         return 2
+
+    def toJSON(self):
+        return json.dumps({
+            'host': self.host,
+            'port': self.port
+        })
+
+    def fromJSON(address: str):
+        data = json.loads(address)
+        return Address(data['host'], data['port'])
 
     @staticmethod
     def from_string(address: str):
