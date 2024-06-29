@@ -152,11 +152,12 @@ class Server():
 
     def _create_shared_memory(self, nr_replicas):
         try:
+            port = self.port
             self._replica_list = ShareableList(
                 [" " * 256] * nr_replicas, name="replica_list"+str(port))
             self._leader_id = ShareableList(
                 [" " * 256], name="leader_id"+str(port))
-        except Exception as e:
+        except FileNotFoundError as e:
             ShareableList(name="replica_list"+str(port)).shm.close()
             ShareableList(name="replica_list"+str(port)).shm.unlink()
             ShareableList(name="leader_id"+str(port)).shm.close()
