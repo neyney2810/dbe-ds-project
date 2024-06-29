@@ -1,5 +1,5 @@
 import os
-from colorama import Fore, Style
+from colorama import Fore
 import logging
 from colorama import just_fix_windows_console
 from termcolor import colored
@@ -62,3 +62,6 @@ class Logger:
 
     def log_election(self, message):
         print(colored(f"ELECTION: {message}", "blue"))
+
+    def log_client_message(self, message):
+        print(colored(f"{message}", "green"))

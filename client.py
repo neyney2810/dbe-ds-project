@@ -1,9 +1,10 @@
-import logging
+import json
 import multiprocessing
 import socket
 import time
 
-from lib.message import ChatMessage, Message, MessageEncoder, MessageType
+from lib.logger import Logger
+from lib.message import ChatMessage
 
 
 class Client():
@@ -16,13 +17,13 @@ class Client():
         self._receive_msg = []
 
         self._sock = None
-        self._logger = logging.getLogger('client')
+        self._logger = Logger()
 
     def _createSocket(self):
         address = (self._host, self._port)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.connect(address)
-        print('Finding connection')
+        print('Finding connection, {}:{}...'.format(self._host, self._port))
         return sock
 
     def _handleMessage(self):
@@ -32,7 +33,13 @@ class Client():
             data = self._sock.recv(1024).decode()
             '''Printing sms received from the server '''
             time.sleep(0.001)
-            print(data)
+            if data:
+                message = json.loads(data)
+                print("\033[A                             \033[A")
+                self._logger.log_client_message(
+                    "{}: {}".format(message['sender'],
+                                    message['message']))
+                print("Enter message: \n")
 
     def run(self):
         # Run chat room
@@ -47,15 +54,20 @@ class Client():
             recv_io.daemon = True
             recv_io.start()
             while True:
-                message = input("Enter message:")
-                req = ChatMessage(sender=self._nickname,
-                                  message=message).toJSON()
-                self._logger.debug('Sending message: {}'.format(message))
-                res = self._sock.send(str.encode(req))
-                print('Sent: {}'.format(res))
-                if res:
-                    print('{}: {}'.format(self._nickname, message))
-                continue
+                try:
+                    message = input("Enter message: \n")
+                    req = ChatMessage(sender=self._nickname,
+                                      message=message).toJSON()
+                    self._logger.log_sys('Sending message: {}'.format(message))
+                    self._sock.send(str.encode(req))
+                except KeyboardInterrupt:
+                    self.shutdown()
+                    break
+                except Exception as e:
+                    self._logger.log_error(
+                        'Error sending message: {}'.format(e))
+                    self.shutdown()
+                    break
 
     def shutdown(self):
         self._sock = None
@@ -63,11 +75,11 @@ class Client():
 
 def main():
     while True:
-        # server_ip = input('Enter server_ip: ')
-        # nickname = input('Enter nickname: ')
-        server_ip = '127.0.0.1'
+        server_ip = input('Enter server_ip: ')
+        server_port = input('Enter server_port: ')
         nickname = 'client'
-        server_port = 3000
+        nickname = input('Enter nickname: ')
+        server_port = int(server_port)
         if len(server_ip.split('.')) < 4:
             continue
         break

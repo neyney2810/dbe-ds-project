@@ -1,12 +1,14 @@
 import json
 from multiprocessing.shared_memory import ShareableList
-from multiprocessing import Manager, Process
+from multiprocessing import Lock, Manager, Process
+from multiprocessing.sharedctypes import Value, Array
 import signal
 import socket
 import os
 from dotenv import load_dotenv
 import sys
 
+from lib.clock import VectorClock
 from lib.discovery import Discovery
 from lib.address import Address
 from lib.election import Node
@@ -46,6 +48,7 @@ class Server():
             host=self.host, port=self.port))
         replica_address = Address(
             self._internal_msg_handler.host, self._internal_msg_handler.port)
+        self.id = self._internal_msg_handler.election.id
 
         # For automatic discovery of host
         self._discovery_thread = Discovery(
@@ -54,6 +57,9 @@ class Server():
         self._discovery_thread.on_finish_discovery = self.on_finish_discovery
         self._discovery_thread.set_replica_address(replica_address)
         self._discovery_thread.set_on_message(self.on_message)
+
+        # Global vectorclock
+        self._client_list = []
 
     def run(self):
         # Get network
@@ -88,20 +94,33 @@ class Server():
     def process_listen_client(self):
         self._logger.log_client('Server started listening on {}:{}'.format(
             self.host, self.port))
+        self._vector_clock = VectorClock(self.id)
         while True:
             client_soc, address = self.server_socket.accept()
             print('Connected by {}:{}'.format(address[0], address[1]))
+            if client_soc not in self._client_list:
+                self._client_list.append(client_soc)
             t = Process(target=self._msgHandler,
-                        args=(client_soc, address))
+                        args=(client_soc, address, self._vector_clock))
             t.start()
 
-    def _msgHandler(self, client_sock, addr):
+    def _msgHandler(self, client_sock, addr, vector_clock: VectorClock):
         while True:
             data = client_sock.recv(1024)
             if len(data) == 0:
                 break
             print(addr, ' >> ', data)
-            client_sock.send(str.encode('You said: ' + data.decode()))
+            vector_clock.increment(self.id)
+            message = json.loads(data.decode())
+            self.broadcast_client_message(message, client_sock)
+
+    def broadcast_client_message(self, message, sock):
+        for client in self._client_list:
+            try:
+                client.send(str.encode(json.dumps(message)))
+            except BrokenPipeError:
+                self._client_list.remove(client)
+                print('Client disconnected')
 
     # ________broadcast listener _________________
 
