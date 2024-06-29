@@ -56,3 +56,9 @@ class Logger:
 
     def log_sys(self, message):
         print(colored(f"SYSTEM: {message}", "magenta"))
+
+    def log_error(self, message):
+        print(colored(f"ERROR: {message}", "red"))
+
+    def log_election(self, message):
+        print(colored(f"ELECTION: {message}", "blue"))

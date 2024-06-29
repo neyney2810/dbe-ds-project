@@ -52,9 +52,10 @@ class InternalMessageHandler():
             self.host, self.port))
         while True:
             data, address = self.sock.recvfrom(1024)
-            self._logger.log_replica('Connected by {}'.format(address))
             jsonStr = data.decode("utf-8")
             message = json.loads(json.loads(jsonStr), cls=MessageDecoder)
+            self._logger.log_replica(
+                "Connected by {}:{}".format(message.host, message.port))
             t = Process(target=self.process_message,
                         args=(message, address))
             t.start()
@@ -89,7 +90,7 @@ class InternalMessageHandler():
                       type=MessageType.PING_RES)
         res = MessageEncoder().encode(res)
         self._logger.log_replica(
-            'PING RESPONSE to {}'.format(client_address))
+            'PING RESPONSE to {}:{}'.format(message.host, message.port))
         self.sock.sendto(
             str.encode(res), client_address)
 
@@ -99,19 +100,23 @@ class InternalMessageHandler():
 
     def process_election_req(self, message, client_address):
         self.election.receive_election(message.message)
+        res = ""
+        self.sock.sendto(
+            str.encode(res), client_address)
 
     def process_leader_req(self, message, client_address):
         self.election.receive_leader(message.message)
 
     def process_remove_node(self, message, client_address):
         node = Node.fromJSON(message.message)
-        self.remove_node(message.message)
-        self.election.form_ring()
-        self.election.send_remove_node(node)
-        res = Message(host=self.host, port=self.port,
-                      message="", type=MessageType.REMOVE_NODE_RES)
-        self.sock.sendto(
-            str.encode(MessageEncoder().encode(res)), client_address)
+        rm = self.remove_node(node=node)
+        if rm:  # If node was found, else ignore
+            self.election.form_ring()
+            self.election.send_remove_node(node)
+            res = Message(host=self.host, port=self.port,
+                          message="", type=MessageType.REMOVE_NODE_RES)
+            self.sock.sendto(
+                str.encode(MessageEncoder().encode(res)), client_address)
 
     def process_default(self, message, client_address):
         self.election.receive_election(message.message)
@@ -120,7 +125,6 @@ class InternalMessageHandler():
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(5)
         try:
-            self._logger.log_replica("Sending message to {}".format(address))
             sock.sendto(
                 str.encode(message), (address.host, address.port))
             data, addr = sock.recvfrom(1024)
@@ -129,7 +133,8 @@ class InternalMessageHandler():
                 'Received response: {}'.format(message))
             return message
         except socket.timeout:
-            self._logger.log_replica('Replica message timed out.')
+            self._logger.log_replica(
+                'Replica message timed out. {}'.format(address))
             return None
 
     def add_node(self, node):
@@ -151,7 +156,9 @@ class InternalMessageHandler():
         for i in range(len(self.nodes)):
             if self.nodes[i] == node_json:
                 self.nodes[i] = " "
-                break
+                print('Node removed: {}'.format(node_json))
+                return True
+        return False
 
     def query_next_node_for_leader(self):
         list = [node for node in self.nodes if not node.startswith(' ')]
@@ -164,6 +171,12 @@ class InternalMessageHandler():
             next_node = self.election.get_next_node()
             print('Querying next node for leader: {}'.format(next_node))
         pass
+
+    def terminate(self):
+        self.sock.close()
+        self._logger.log_replica('Replica shutdown')
+        self.nodes.shm.close()
+        self.nodes.shm.unlink()
 
     def get_ring(self):
         return [node for node in self.nodes if not node.startswith(' ')]

@@ -1,6 +1,7 @@
 import json
 from multiprocessing.shared_memory import ShareableList
 from multiprocessing import Manager, Process
+import signal
 import socket
 import os
 from dotenv import load_dotenv
@@ -22,22 +23,23 @@ class Server():
 
         self.host = host
         self.port = port
-        server_config = (host, port)
+
+        # Auto setup server socket and host
+        socket_created = False
+        while not socket_created:
+            try:
+                self.server_socket = self._create_server_socket(
+                    self.host, self.port)
+                socket_created = True
+            except OSError:
+                self.port += 1
 
         # Sharable list
         nr_replicas = int(os.getenv('MAX_REPLICA') or 3)
-        self._replica_list = ShareableList(
-            [" " * 256] * nr_replicas, name="replica_list"+str(port))
-        self._leader_id = ShareableList(
-            [" " * 256], name="leader_id"+str(port))
+        self._create_shared_memory(nr_replicas)
 
         # Logger
         self._logger = Logger()
-
-        # Auto setup server socket and host
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.bind(server_config)
-        self.server_socket.listen()
 
         # For ring and election
         self._internal_msg_handler = InternalMessageHandler(server_address=Address(
@@ -76,26 +78,30 @@ class Server():
 
     # ________chatting function _______________
 
+    def _create_server_socket(self, host, port):
+        server_config = (host, port)
+        server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_socket.bind(server_config)
+        server_socket.listen()
+        return server_socket
+
     def process_listen_client(self):
         self._logger.log_client('Server started listening on {}:{}'.format(
             self.host, self.port))
-        conn, addr = self.server_socket.accept()
-        with conn:
-            while True:
-                data = conn.recv(1024)
-                self._logger.log_client('Accepted connection from {}:{}'.format(
-                    addr[0], addr[1]))
-                t = Process(target=self._msgHandler,
-                            args=(data, conn, addr))
-                t.start()
-                t.join()
+        while True:
+            client_soc, address = self.server_socket.accept()
+            print('Connected by {}:{}'.format(address[0], address[1]))
+            t = Process(target=self._msgHandler,
+                        args=(client_soc, address))
+            t.start()
 
-    def _msgHandler(self, data, conn, addr):
-        msg = json.loads(data.decode())
-        # do some checks and if msg == someWeirdSignal: break:
-        print(addr, ' >> ', msg)
-        # Maybe some code to compute the last digit of PI, play game or anything else can go here and when you are done.
-        conn.sendall(str.encode("OK"), addr)
+    def _msgHandler(self, client_sock, addr):
+        while True:
+            data = client_sock.recv(1024)
+            if len(data) == 0:
+                break
+            print(addr, ' >> ', data)
+            client_sock.send(str.encode('You said: ' + data.decode()))
 
     # ________broadcast listener _________________
 
@@ -125,6 +131,33 @@ class Server():
             self._internal_msg_handler.election.join_ring()
         self._internal_msg_handler.election.start_p_send_heartbeat()
 
+    def _create_shared_memory(self, nr_replicas):
+        try:
+            self._replica_list = ShareableList(
+                [" " * 256] * nr_replicas, name="replica_list"+str(port))
+            self._leader_id = ShareableList(
+                [" " * 256], name="leader_id"+str(port))
+        except Exception as e:
+            ShareableList(name="replica_list"+str(port)).shm.close()
+            ShareableList(name="replica_list"+str(port)).shm.unlink()
+            ShareableList(name="leader_id"+str(port)).shm.close()
+            ShareableList(name="leader_id"+str(port)).shm.unlink()
+            self._replica_list = ShareableList(
+                [" " * 256] * nr_replicas, name="replica_list"+str(port))
+            self._leader_id = ShareableList(
+                [" " * 256], name="leader_id"+str(port))
+
+    def shutdown(self):
+        self._discovery_thread.terminate()
+        self._leader_id.shm.close()
+        self._leader_id.shm.unlink()
+        self._replica_list.shm.close()
+        self._replica_list.shm.unlink()
+        self._internal_msg_handler.terminate()
+        self.server_socket.close()
+        self._discovery_thread.terminate()
+        self._logger.log_sys('Server shutdown')
+
 
 def set_leader_id(d, port, leader_id):
     d['leader_id'+str(port)] = leader_id
@@ -134,11 +167,16 @@ def set_leader_id(d, port, leader_id):
 if __name__ == "__main__":
     load_dotenv()
     port = sys.argv[1] if len(sys.argv) > 1 else 3000
+    os.system('cls||clear')
 
     try:
         host = socket.gethostbyname(socket.gethostname())
         port = int(port)
         server = Server(host, port)
+
+        signal.signal(signal.SIGINT, lambda s, f: server.shutdown())
+        signal.signal(signal.SIGTERM, lambda s, f: server.shutdown())
+
         server.run()
 
     except TypeError as e:

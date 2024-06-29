@@ -56,3 +56,32 @@ class MessageDecoder(json.JSONDecoder):
     def decode(self, s):
         data = json.loads(s)
         return Message(data['message'], data['type'], data['host'], data['port'])
+
+
+class ChatMessageType(str, Enum):
+    JOIN = "JOIN"
+    LEAVE = "LEAVE"
+    MESSAGE = "MESSAGE"
+
+    def toJSON(self):
+        return self.name
+
+
+class ChatMessage:
+    def __init__(self, sender: str, message: str):
+        self.sender = sender
+        self.message = message
+
+    def __str__(self):
+        return 'Message: {} Sender: {}'.format(self.message, self.sender)
+
+    def toJSON(self):
+        return json.dumps({
+            'message': self.message,
+            'sender': self.sender
+        })
+
+    @staticmethod
+    def fromJSON(data: str):
+        data = json.loads(data)
+        return ChatMessage(data['message'], data['sender'])

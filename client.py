@@ -3,6 +3,8 @@ import multiprocessing
 import socket
 import time
 
+from lib.message import ChatMessage, Message, MessageEncoder, MessageType
+
 
 class Client():
     def __init__(self, host, port, nickname):
@@ -23,10 +25,6 @@ class Client():
         print('Finding connection')
         return sock
 
-    def send_message(self, message):
-        self._sock.send(str.encode(message))
-        self._logger.debug('Sent message: {}'.format(message))
-
     def _handleMessage(self):
         ''' Receiving message from the node server'''
         while True:
@@ -41,8 +39,8 @@ class Client():
         self._sock = self._createSocket()
 
         # First message
-        message = '{} has entered the chat'.format(self._nickname)
-        self.send_message(message)
+        # message = '{} has entered the chat'.format(self._nickname)
+        # self.send_message(message)
 
         if self._sock:
             recv_io = multiprocessing.Process(target=self._handleMessage)
@@ -50,8 +48,13 @@ class Client():
             recv_io.start()
             while True:
                 message = input("Enter message:")
-                message = "\nclient:{}\n".format(message)
-                self.send_message(message)  # Client replying
+                req = ChatMessage(sender=self._nickname,
+                                  message=message).toJSON()
+                self._logger.debug('Sending message: {}'.format(message))
+                res = self._sock.send(str.encode(req))
+                print('Sent: {}'.format(res))
+                if res:
+                    print('{}: {}'.format(self._nickname, message))
                 continue
 
     def shutdown(self):
@@ -64,7 +67,7 @@ def main():
         # nickname = input('Enter nickname: ')
         server_ip = '127.0.0.1'
         nickname = 'client'
-        server_port = 5973
+        server_port = 3000
         if len(server_ip.split('.')) < 4:
             continue
         break

@@ -69,6 +69,9 @@ class RingMember(Node):
         if next_node is not None:
             elect_msg = Message(host=self.address.host, port=self.address.port, message=id,
                                 type=type)
+            self._logger.log_replica(
+                'Sending {} to {}'.format(type, next_node.replica_address))
+
             return self.sock_send(MessageEncoder().encode(
                 elect_msg), next_node.replica_address)
         return None
@@ -86,8 +89,8 @@ class RingMember(Node):
     def form_ring(self):
         sorted_list = sorted(
             [node for node in self.nodes if not node.startswith(' ')])
-        for i in range(len(sorted_list)):
-            if (i + 1) <= len(sorted_list):
+        for i in range(len(self.nodes)):
+            if i < len(sorted_list):
                 self.nodes[i] = sorted_list[i]
             else:
                 self.nodes[i] = " "
@@ -100,17 +103,14 @@ class RingMember(Node):
 
         if len(node_list) == 0 or len(node_list) == 1:
             return None
+
         json_node = Node(address=self.address,
                          replica_address=self.replica_address).toJSON()
         current_index = node_list.index(json_node)
         if current_index + 1 < len(node_list):
             n = Node.fromJSON(node_list[current_index + 1])
-            self._logger.log_replica('Next node is {}:{}'.format(
-                n.address.host, n.address.port))
             return n
         n = Node.fromJSON(node_list[0])
-        self._logger.log_replica('Next node is {}:{}'.format(
-            n.address.host, n.address.port))
         return n
 
     def join_ring(self):
@@ -139,26 +139,37 @@ class RingMember(Node):
 
     # Upon receiving a message ELECTION(j)
     def receive_election(self, id):
+        self._logger.log_election(
+            'Upon receiving a message ELECTION(j) {}'.format(id))
         # if (j > my_id) then send(ELECTION, j);
         if id > self.id:
             # send(id, 'ELECTION')
             self.send_next_node(MessageType.ELECTION_REQ, id)
-            # else if (my_id = j) then send(LEADER(my_id));
-            print('Sending ELECTION to {}'.format(id))
+            self._logger.log_election(
+                'if (j > my_id) then send(ELECTION, j); {}'.format(id))
+        # else if (my_id = j) then send(LEADER(my_id));
         elif id == self.id:
             # send(id, 'LEADER')
             self.send_next_node(MessageType.LEADER_REQ, id)
             self.leader_id[0] = self.id
+            self._logger.log_election(
+                'else if (my_id = j) then send(LEADER(my_id)); {}'.format(id))
 
         # if ((my_id > j) ^ (¬participant)) then send ELECTION(my_id));
         if self.id > id and not self.participant:
             # send(self.id, 'ELECTION')
             self.inititate_election()
+            self._logger.log_election(
+                'if ((my_id > j) ^ (¬participant)) then send ELECTION(my_id)); {}'.format(id))
         self.participant = True
 
     # Upon receiving a message LEADER(j):
     def receive_leader(self, leader_id):
+        self._logger.log_election(
+            'Upon receiving a message LEADER(j): {}'.format(leader_id))
         self.leader_id[0] = leader_id
+        self._logger.log_election(
+            'Leader changed to {}'.format(leader_id))
         if self.id != leader_id:
             # send(LEADER, j)
             self.send_next_node(MessageType.LEADER_REQ, leader_id)
@@ -190,6 +201,7 @@ class RingMember(Node):
                     self.send_remove_node(next_node)
                     if (next_node.toJSON() == self.leader_id[0]):
                         # start the election process
+                        print('Leader is dead. Starting election')
                         self.inititate_election()
 
     def send_remove_node(self, node):

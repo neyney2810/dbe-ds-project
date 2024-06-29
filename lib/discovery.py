@@ -119,6 +119,8 @@ class Discovery():
 
     def terminate(self):
         self._stop_req = True
+        self.send_socket.close()
+        self.recv_socket.close()
         pass
 
     def start_listening(self):
